@@ -1,0 +1,114 @@
+<!DOCTYPE html>
+<html lang="en"><head><meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1">
+<title>Scalp Journal</title>
+<link rel="preconnect" href="https://fonts.googleapis.com"><link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link href="https://fonts.googleapis.com/css2?family=Playfair+Display:ital,wght@1,600;1,700&family=Inter:wght@400;500;600&display=swap" rel="stylesheet">
+<style>
+:root{color-scheme:dark;--bg:#0b0f17;--s:rgba(20,26,38,.78);--ink:#e6ebf2;--mut:#8b96a8;--ln:#2a3344;--ac:#4f8ff7;--g:#3fcf8e;--r:#f26d6d}
+*{box-sizing:border-box}
+body{margin:0;min-height:100vh;background:var(--bg) url(bg/login.svg) center/cover fixed no-repeat;color:var(--ink);font:15px/1.5 Inter,"Segoe UI",system-ui,sans-serif;font-variant-numeric:tabular-nums}
+body[data-tab=dash]{background-image:url(bg/dash.svg)}body[data-tab=cal]{background-image:url(bg/cal.svg)}body[data-tab=tr]{background-image:url(bg/tr.svg)}body[data-tab=acc]{background-image:url(bg/acc.svg)}
+.g{color:var(--g)}.r{color:var(--r)}
+header{background:rgba(10,14,22,.75);backdrop-filter:blur(10px);border-bottom:1px solid var(--ln);color:var(--ink);padding:10px 16px;display:flex;gap:10px;flex-wrap:wrap;align-items:center}
+header b{font:italic 700 21px "Playfair Display",Georgia,serif;margin-right:auto;letter-spacing:.3px}
+main{max-width:980px;margin:0 auto;padding:14px}
+nav{display:flex;gap:6px;margin-bottom:12px;flex-wrap:wrap}
+button,select,input{font:inherit;padding:8px 12px;border:1px solid var(--ln);border-radius:6px;background:var(--s);color:var(--ink)}
+button{background:var(--ac);color:#fff;border-color:var(--ac);cursor:pointer}
+button.ghost{background:var(--s);color:var(--ink);border-color:var(--ln)}
+button.on{background:var(--ink);border-color:var(--ink);color:#0b0f17}
+button.sm{padding:4px 10px;font-size:13px}
+:focus-visible{outline:2px solid var(--ac);outline-offset:2px}
+.box{max-width:350px;margin:12vh auto;background:var(--s);backdrop-filter:blur(14px);border:1px solid var(--ln);padding:26px;border-radius:14px;display:grid;gap:10px;box-shadow:0 20px 60px rgba(0,0,0,.45)}
+.brand{margin:0;text-align:center;font:italic 700 40px/1.1 "Playfair Display",Georgia,serif;background:linear-gradient(90deg,#f4c27a,#f7e3c0);-webkit-background-clip:text;background-clip:text;color:transparent}
+.sub{margin:0 0 8px;text-align:center;color:var(--mut);font-size:13px;letter-spacing:4px;text-transform:uppercase}
+.panel{background:var(--s);backdrop-filter:blur(10px);border:1px solid var(--ln);border-radius:10px;padding:14px;margin-bottom:12px}
+.tiles{display:grid;grid-template-columns:repeat(auto-fit,minmax(135px,1fr));gap:10px;margin-bottom:12px}
+.tiles div{background:var(--s);backdrop-filter:blur(10px);border:1px solid var(--ln);border-radius:10px;padding:10px 12px}
+.tiles small{color:var(--mut);display:block}.tiles b{font-size:19px}
+.rule{margin:8px 0}.rule>div:first-child{display:flex;justify-content:space-between;gap:8px;flex-wrap:wrap}
+.bar{height:9px;background:#0b0f17;border-radius:5px;overflow:hidden}.bar i{display:block;height:100%}
+.eq{width:100%;height:auto}
+.cal{display:grid;grid-template-columns:repeat(7,1fr);gap:4px}
+.cal i{font-style:normal;color:var(--mut);text-align:center}
+.cal u{text-decoration:none;min-height:58px;border:1px solid var(--ln);border-radius:6px;padding:3px 5px;font-size:13px}
+.cal small{display:block;font-size:11px;font-weight:600}
+.gb{background:rgba(63,207,142,.16);color:#7ee2b4}.rb{background:rgba(242,109,109,.16);color:#f7a0a0}
+.accs td:last-child{text-align:right}
+.nav{display:flex;justify-content:space-between;align-items:center;margin-bottom:8px}
+.scroll{overflow-x:auto}table{border-collapse:collapse;width:100%;white-space:nowrap}
+th,td{padding:6px 8px;text-align:left;border-bottom:1px solid var(--ln)}th{color:var(--mut);font-weight:600}
+td input,td select{padding:4px 6px;width:100%}td input{min-width:150px}
+.form{display:grid;grid-template-columns:repeat(auto-fit,minmax(150px,1fr));gap:8px}
+.form label{display:grid;gap:2px;color:var(--mut);font-size:13px}
+</style></head>
+<body><div id="app"></div>
+<script src="https://www.gstatic.com/firebasejs/10.12.2/firebase-app-compat.js"></script>
+<script src="https://www.gstatic.com/firebasejs/10.12.2/firebase-auth-compat.js"></script>
+<script src="https://www.gstatic.com/firebasejs/10.12.2/firebase-firestore-compat.js"></script>
+<script>
+/* PASTE YOUR FIREBASE CONFIG VALUES BETWEEN THE QUOTES */
+const FB={apiKey:"AIzaSyAk-9KTe8KoAwGc15iA__SzCLyEI0_PiwE",authDomain:"trading-journal-8266d.firebaseapp.com",projectId:"trading-journal-8266d",appId:"1:297230429703:web:664a301491e4b71f6984a2"};
+
+const $=s=>document.querySelector(s),esc=s=>String(s??"").replace(/[&<>"]/g,c=>({"&":"&amp;","<":"&lt;",">":"&gt;",'"':"&quot;"}[c]));
+const money=v=>(v<0?"-":"")+"$"+Math.abs(v).toLocaleString(undefined,{minimumFractionDigits:2,maximumFractionDigits:2});
+const cls=v=>v>0?"g":v<0?"r":"",p2=n=>String(n).padStart(2,"0");
+const key=ms=>{const d=new Date(ms);return d.getFullYear()+"-"+p2(d.getMonth()+1)+"-"+p2(d.getDate())};
+let U,db,A=[],T=[],sel="",tab="dash",cur=new Date(),ed="";
+
+/* ---------- CSV reading (Match Trader, MT5, Tradovate) ---------- */
+function csv(t){const r=[];let row=[],c="",q=0;for(let i=0;i<t.length;i++){const ch=t[i];if(q){if(ch=='"'){if(t[i+1]=='"'){c+='"';i++}else q=0}else c+=ch}else if(ch=='"')q=1;else if(ch==','||ch==';'&&0){row.push(c);c=""}else if(ch=='\n'||ch=='\r'){if(ch=='\r'&&t[i+1]=='\n')i++;row.push(c);r.push(row);row=[];c=""}else c+=ch}if(c||row.length){row.push(c);r.push(row)}return r.filter(x=>x.join("").trim())}
+function num(s){s=String(s||"").trim();const neg=/^\(.*\)$/.test(s)||s.startsWith("-");const v=parseFloat(s.replace(/[^0-9.]/g,""))||0;return neg?-v:v}
+function dt(s,df){s=(s||"").trim();let m=s.match(/^(\d{4})[.\-\/](\d\d)[.\-\/](\d\d)[ T]?(\d\d)?:?(\d\d)?:?(\d\d)?/);if(m)return new Date(+m[1],m[2]-1,+m[3],+m[4]||0,+m[5]||0,+m[6]||0).getTime();m=s.match(/^(\d{1,2})[\/.\-](\d{1,2})[\/.\-](\d{4})[ ,]*(\d{1,2})?:?(\d\d)?:?(\d\d)?/);if(!m)return null;let a=+m[1],b=+m[2];if(a>12)df=1;else if(b>12)df=0;return new Date(+m[3],(df?b:a)-1,df?a:b,+m[4]||0,+m[5]||0,+m[6]||0).getTime()}
+function map(rows){
+  const H=rows[0].map(h=>h.toLowerCase().replace(/[^a-z0-9]/g,"")),f=(...k)=>{for(const x of k){const i=H.indexOf(x);if(i>=0)return i}return -1};
+  const I={id:f("id","position","positionid","ticket","orderid"),sym:f("symbol","instrument","contract"),side:f("side","type","direction"),vol:f("volume","qty","quantity","size","lots"),o:f("opentime","timeopen","boughttimestamp","entrytime"),c:f("closetime","timeclose","soldtimestamp","exittime"),p:f("profit","pnl","netpl","netprofit"),cm:f("commission","commissions","fee","fees"),sw:f("swap"),bf:f("buyfillid"),sf:f("sellfillid")};
+  const T2=H.map((h,i)=>h=="time"?i:-1).filter(i=>i>=0);if(I.o<0&&T2.length>1){I.o=T2[0];I.c=T2[T2.length-1]}
+  const tv=H.includes("boughttimestamp"),df=tv?0:1,out=[];
+  for(const r of rows.slice(1)){
+    const sym=(r[I.sym]||"").trim();if(!sym||I.p<0)continue;
+    let o=dt(r[I.o],df),c=dt(r[I.c],df),side=(r[I.side]||"").trim().toUpperCase();
+    if(tv){const b=dt(r[I.o],df),s=dt(r[I.c],df);o=Math.min(b,s);c=Math.max(b,s);side=b<=s?"BUY":"SELL"}
+    if(!c)continue;
+    const pnl=num(r[I.p])+(I.cm>=0?num(r[I.cm]):0)+(I.sw>=0?num(r[I.sw]):0);
+    let id=(r[I.id]||"").trim()||(I.bf>=0?r[I.bf]+"-"+r[I.sf]:"")||sym+o+c+pnl;
+    out.push({id:id.replace(/[^\w-]/g,"_"),sym,side:side.includes("SELL")?"SELL":"BUY",vol:num(r[I.vol]),open:o||c,close:c,pnl});
+  }return out}
+
+/* ---------- Firebase ---------- */
+if(!FB.apiKey){$("#app").innerHTML='<div class=box><h2>Almost there</h2><p>Open index.html in a text editor and paste your Firebase config values at the top.</p></div>'}
+else{firebase.initializeApp(FB);db=firebase.firestore();firebase.auth().onAuthStateChanged(async u=>{U=u;u?await load():login()})}
+const base=()=>db.collection("users").doc(U.uid);
+async function load(){const[a,t]=await Promise.all([base().collection("accounts").get(),base().collection("trades").get()]);A=a.docs.map(d=>({id:d.id,...d.data()}));T=t.docs.map(d=>({id:d.id,...d.data()}));if(!A.find(x=>x.id==sel))sel=A[0]?.id||"";if(!A.length)tab="acc";render()}
+function login(){document.body.dataset.tab="login";$("#app").innerHTML=`<div class=box><h1 class=brand>Scalp Journal</h1><p class=sub>Login</p><input id=em type=email placeholder=Email autocomplete=username><input id=pw type=password placeholder=Password autocomplete=current-password><button onclick="auth(0)">Sign in</button><button class=ghost onclick="auth(1)">Create account</button><p id=err class=r></p></div>`}
+async function auth(n){try{const a=firebase.auth(),e=$("#em").value,p=$("#pw").value;n?await a.createUserWithEmailAndPassword(e,p):await a.signInWithEmailAndPassword(e,p)}catch(x){$("#err").textContent=x.message}}
+async function addAcc(){const g=i=>$("#"+i).value,a={name:g("an").trim(),size:+g("as"),daily:+g("ad"),dd:+g("am"),target:+g("at"),type:g("ay")};if(!a.name||!a.size)return alert("Add an account name and size.");if(ed){await base().collection("accounts").doc(ed).update(a);sel=ed;ed=""}else{const r=await base().collection("accounts").add(a);sel=r.id;tab="dash"}await load()}
+const editAcc=id=>{ed=id;sel=id;tab="acc";render();$("#an").focus()},cancelEd=()=>{ed="";render()};
+async function delAcc(id){if(id)sel=id;const a=A.find(x=>x.id==sel);if(!a||!confirm(`Delete "${a.name}" and all its trades?`))return;if(ed==sel)ed="";const col=base().collection("trades");for(const t of T.filter(t=>t.acc==sel))await col.doc(t.id).delete();await base().collection("accounts").doc(sel).delete();sel="";await load()}
+async function imp(inp){const f=inp.files[0];if(!f)return;if(!sel)return alert("Create an account first.");const L=map(csv((await f.text()).replace(/^\uFEFF/,"")));if(!L.length)return alert("No closed trades found in this file.");const col=base().collection("trades");for(let i=0;i<L.length;i+=400){const b=db.batch();L.slice(i,i+400).forEach(t=>b.set(col.doc(sel+"_"+t.id),{...t,acc:sel},{merge:true}));await b.commit()}inp.value="";alert(L.length+" trades imported. Duplicates are skipped automatically.");await load()}
+async function note(id,k,v){const t=T.find(x=>x.id==id);t[k]=v;await base().collection("trades").doc(id).update({[k]:v})}
+
+/* ---------- Views ---------- */
+function stats(tl){const w=tl.filter(t=>t.pnl>0),l=tl.filter(t=>t.pnl<0),gw=w.reduce((a,t)=>a+t.pnl,0),gl=-l.reduce((a,t)=>a+t.pnl,0),net=gw-gl,n=tl.length;
+return `<div class=tiles><div><small>Net P&L</small><b class="${cls(net)}">${money(net)}</b></div><div><small>Trades</small><b>${n}</b></div><div><small>Win rate</small><b>${n?Math.round(w.length/n*100):0}%</b></div><div><small>Profit factor</small><b>${gl?(gw/gl).toFixed(2):w.length?"∞":"0"}</b></div><div><small>Avg win / loss</small><b>${money(w.length?gw/w.length:0)} / ${money(l.length?-gl/l.length:0)}</b></div><div><small>Best / worst</small><b>${money(n?Math.max(...tl.map(t=>t.pnl)):0)} / ${money(n?Math.min(...tl.map(t=>t.pnl)):0)}</b></div></div>`}
+function eq(tl,size){if(!tl.length)return"<p>No trades yet. Import a CSV to see your equity curve.</p>";const s=[...tl].sort((a,b)=>a.close-b.close);let b=size;const p=[b];s.forEach(t=>p.push(b+=t.pnl));const lo=Math.min(...p),r=(Math.max(...p)-lo)||1;return `<svg viewBox="0 0 600 180" class=eq role=img aria-label="Equity curve"><polyline fill=none stroke="#4f8ff7" stroke-width=2.5 points="${p.map((v,i)=>`${i/(p.length-1)*600},${170-(v-lo)/r*160}`).join(" ")}"/></svg>`}
+function rules(a,tl){const net=tl.reduce((x,t)=>x+t.pnl,0),bal=a.size+net;let pk=a.size,b=a.size;[...tl].sort((x,y)=>x.close-y.close).forEach(t=>pk=Math.max(pk,b+=t.pnl));
+const day=tl.filter(t=>key(t.close)==key(Date.now())).reduce((x,t)=>x+t.pnl,0),dd=Math.max(0,a.type=="trailing"?pk-bal:a.size-bal);
+const bar=(l,v,max,good)=>{const p=max?Math.max(0,Math.min(100,v/max*100)):0;return `<div class=rule><div><span>${l}</span><b>${money(v)} of ${money(max)}</b></div><div class=bar><i style="width:${p}%;background:${good?"var(--g)":p>75?"var(--r)":"var(--ac)"}"></i></div></div>`};
+return `<p>Balance <b class="${cls(net)}">${money(bal)}</b> (${a.type=="trailing"?"trailing":"static"} drawdown)</p>`+bar("Profit target",Math.max(0,net),a.target,1)+bar("Daily loss used today",Math.max(0,-day),a.daily)+bar("Max drawdown used",dd,a.dd)+`<small style="color:var(--mut)">Based on closed trades only. Your firm's own dashboard is the final word.</small>`}
+function cal(tl){const y=cur.getFullYear(),m=cur.getMonth(),by={};tl.forEach(t=>by[key(t.close)]=(by[key(t.close)]||0)+t.pnl);const first=(new Date(y,m,1).getDay()+6)%7,n=new Date(y,m+1,0).getDate();
+let h=`<div class=nav><button class=ghost onclick="mv(-1)" aria-label="Previous month">‹</button><b>${cur.toLocaleString(undefined,{month:"long",year:"numeric"})}</b><button class=ghost onclick="mv(1)" aria-label="Next month">›</button></div><div class=cal>`+"MTWTFSS".split("").map(d=>`<i>${d}</i>`).join("");
+for(let i=0;i<first;i++)h+="<u></u>";for(let d=1;d<=n;d++){const v=by[y+"-"+p2(m+1)+"-"+p2(d)];h+=`<u class="${v==null?"":v>=0?"gb":"rb"}">${d}${v==null?"":`<small>${money(v)}</small>`}</u>`}return h+"</div>"}
+const mv=n=>{cur=new Date(cur.getFullYear(),cur.getMonth()+n,1);render()};
+const opt=(arr,v)=>`<option value="">-</option>`+arr.map(x=>`<option${x==v?" selected":""}>${x}</option>`).join("");
+function trades(tl){if(!tl.length)return"<p>No trades yet.</p>";return `<div class=scroll><table><tr><th>Closed</th><th>Symbol</th><th>Side</th><th>Net P&L</th><th>Grade</th><th>Felt</th><th>Notes</th></tr>`+[...tl].sort((a,b)=>b.close-a.close).map(t=>`<tr><td>${new Date(t.close).toLocaleString([],{dateStyle:"short",timeStyle:"short"})}</td><td>${esc(t.sym)}</td><td>${t.side}</td><td class="${cls(t.pnl)}">${money(t.pnl)}</td><td><select onchange="note('${t.id}','grade',this.value)">${opt(["A","B","C","D"],t.grade)}</select></td><td><select onchange="note('${t.id}','mood',this.value)">${opt(["Calm","Confident","FOMO","Revenge","Fearful","Bored"],t.mood)}</select></td><td><input value="${esc(t.note)}" placeholder="What happened?" onchange="note('${t.id}','note',this.value)"></td></tr>`).join("")+"</table></div>"}
+function accForm(){const e=A.find(x=>x.id==ed)||{},v=k=>e[k]!=null?esc(e[k]):"";
+const list=A.length?`<div class=panel><h3>Your accounts</h3><div class=scroll><table class=accs><tr><th>Name</th><th>Balance</th><th>Daily loss</th><th>Max DD</th><th>Target</th><th>Type</th><th></th></tr>${A.map(a=>`<tr><td>${esc(a.name)}</td><td>${money(a.size||0)}</td><td>${money(a.daily||0)}</td><td>${money(a.dd||0)}</td><td>${money(a.target||0)}</td><td>${a.type=="trailing"?"Trailing":"Static"}</td><td><button class="ghost sm" onclick="editAcc('${a.id}')">Edit</button> <button class="ghost sm" onclick="delAcc('${a.id}')">Delete</button></td></tr>`).join("")}</table></div></div>`:"";
+return list+`<div class=panel><h3>${ed?"Edit account":"Add a prop account"}</h3><div class=form><label>Name<input id=an placeholder="GFT 50k" value="${v("name")}"></label><label>Starting balance<input id=as type=number value="${v("size")}"></label><label>Daily loss limit ($)<input id=ad type=number value="${v("daily")}"></label><label>Max drawdown ($)<input id=am type=number value="${v("dd")}"></label><label>Profit target ($)<input id=at type=number value="${v("target")}"></label><label>Drawdown type<select id=ay><option value=static>Static</option><option value=trailing${e.type=="trailing"?" selected":""}>Trailing</option></select></label></div><p><button onclick="addAcc()">${ed?"Save changes":"Save account"}</button>${ed?` <button class=ghost onclick="cancelEd()">Cancel</button>`:""}</p></div>`}
+function render(){
+  const a=A.find(x=>x.id==sel),tl=T.filter(t=>t.acc==sel),tabs={dash:"Dashboard",cal:"Calendar",tr:"Trades",acc:"Accounts"};
+  document.body.dataset.tab=tab;if(tab!="acc")ed="";
+  let body=tab=="acc"?accForm():!a?"<p>Add an account first.</p>":tab=="dash"?`<div class=panel>${rules(a,tl)}</div>${stats(tl)}<div class=panel>${eq(tl,a.size)}</div>`:tab=="cal"?`<div class=panel>${cal(tl)}</div>`:`<div class=panel>${trades(tl)}</div>`;
+  $("#app").innerHTML=`<header><b>Scalp Journal</b><select onchange="sel=this.value;render()" aria-label="Account">${A.map(x=>`<option value="${x.id}"${x.id==sel?" selected":""}>${esc(x.name)}</option>`).join("")}</select><button onclick="$('#f').click()">Import CSV</button><input id=f type=file accept=".csv" hidden onchange="imp(this)"><button class=ghost onclick="firebase.auth().signOut()">Sign out</button></header><main><nav>${Object.entries(tabs).map(([k,v])=>`<button class="${tab==k?"on":"ghost"}" onclick="tab='${k}';render()">${v}</button>`).join("")}</nav>${body}</main>`}
+</script></body></html>
