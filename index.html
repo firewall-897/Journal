@@ -44,6 +44,7 @@ td input,td select{padding:4px 6px;width:100%}td input{min-width:150px}
 .form label{display:grid;gap:2px;color:var(--mut);font-size:13px}
 </style></head>
 <body><div id="app"></div>
+<script src="https://cdn.jsdelivr.net/npm/lightweight-charts@4.1.3/dist/lightweight-charts.standalone.production.js"></script>
 <script src="https://www.gstatic.com/firebasejs/10.12.2/firebase-app-compat.js"></script>
 <script src="https://www.gstatic.com/firebasejs/10.12.2/firebase-auth-compat.js"></script>
 <script src="https://www.gstatic.com/firebasejs/10.12.2/firebase-firestore-compat.js"></script>
@@ -92,15 +93,15 @@ async function note(id,k,v){const t=T.find(x=>x.id==id);t[k]=v;await base().coll
 /* ---------- Views ---------- */
 function stats(tl){const w=tl.filter(t=>t.pnl>0),l=tl.filter(t=>t.pnl<0),gw=w.reduce((a,t)=>a+t.pnl,0),gl=-l.reduce((a,t)=>a+t.pnl,0),net=gw-gl,n=tl.length;
 return `<div class=tiles><div><small>Net P&L</small><b class="${cls(net)}">${money(net)}</b></div><div><small>Trades</small><b>${n}</b></div><div><small>Win rate</small><b>${n?Math.round(w.length/n*100):0}%</b></div><div><small>Profit factor</small><b>${gl?(gw/gl).toFixed(2):w.length?"∞":"0"}</b></div><div><small>Avg win / loss</small><b>${money(w.length?gw/w.length:0)} / ${money(l.length?-gl/l.length:0)}</b></div><div><small>Best / worst</small><b>${money(n?Math.max(...tl.map(t=>t.pnl)):0)} / ${money(n?Math.min(...tl.map(t=>t.pnl)):0)}</b></div></div>`}
-let zm=1;
-function zoom(d){const o=$("#eqs"),x=o?o.scrollLeft:0;zm=Math.min(4,Math.max(.25,zm*(d>0?1.5:1/1.5)));render();const n=$("#eqs");if(n)n.scrollLeft=x}
-function eq(tl,size){if(!tl.length)return"<p>No trades yet. Import a CSV to see your equity curve.</p>";const s=[...tl].sort((a,b)=>a.close-b.close);let b=size;const p=[b];s.forEach(t=>p.push(b+=t.pnl));
-const n=p.length,mn=Math.min(...p,size),mx=Math.max(...p,size),pad=((mx-mn)||size*.01)*.1,lo=mn-pad,r=(mx+pad)-lo,H=240,top=10,ph=H-top-34,pw=Math.max(300,(n-1)*40*zm+20),
-Y=v=>top+ph-(v-lo)/r*ph,X=i=>10+i/(n-1||1)*(pw-20),dec=r<20?2:0,f=v=>"$"+v.toLocaleString(undefined,{minimumFractionDigits:dec,maximumFractionDigits:dec}),
-st='style="fill:#9aa7bd;font-size:10px"';let g="",yl="",xl="",last=-99,ld="";
-for(let i=0;i<5;i++){const v=lo+r*i/4,y=Y(v);g+=`<line x1="0" x2="${pw}" y1="${y}" y2="${y}" stroke="rgba(255,255,255,.09)"/>`;yl+=`<text x="54" y="${y+3}" text-anchor="end">${f(v)}</text>`}
-for(let i=1;i<n;i++){const k=key(s[i-1].close),x=X(i);if(k!=ld){ld=k;if(x-last>=36){last=x;xl+=`<line x1="${x}" x2="${x}" y1="${top+ph}" y2="${top+ph+4}" stroke="#9aa7bd"/><text x="${x}" y="${H-8}" text-anchor="middle">${new Date(s[i-1].close).toLocaleDateString([],{day:"numeric",month:"short"})}</text>`}}}
-return `<div style="display:flex;gap:6px;align-items:center;margin-bottom:6px"><button class=ghost onclick="zoom(-1)" aria-label="Zoom out">−</button><button class=ghost onclick="zoom(1)" aria-label="Zoom in">+</button><small style="color:var(--mut)">Zoom in to see every date. Swipe sideways to move.</small></div><div style="display:flex"><svg width=58 height=${H} ${st}>${yl}</svg><div id=eqs style="overflow-x:auto;flex:1"><svg width=${pw} height=${H} class=eq role=img aria-label="Equity curve" ${st}>${g}<line x1="0" x2="${pw}" y1="${Y(size)}" y2="${Y(size)}" stroke="#9aa7bd" stroke-dasharray="4 4"/><polyline fill=none stroke="#4f8ff7" stroke-width=2.5 points="${p.map((v,i)=>X(i)+","+Y(v)).join(" ")}"/>${xl}</svg></div></div>`}
+let CH,EQ;
+function eq(tl,size){if(!tl.length)return"<p>No trades yet. Import a CSV to see your equity curve.</p>";EQ={tl,size};return `<div style="display:flex;gap:6px;flex-wrap:wrap;align-items:center;margin-bottom:6px"><button class=ghost onclick="CH&&CH.timeScale().fitContent()">Fit all</button><button class=ghost onclick="CH&&CH.priceScale('right').applyOptions({autoScale:true})">Reset height</button><b id=eqv style="margin-left:auto"></b></div><div id=eqc style="height:340px"></div><small style="color:var(--mut)">Scroll or pinch to zoom, drag to move, drag the numbers on the right to stretch.</small>`}
+function drawEq(){const el=$("#eqc");if(!el||!EQ)return;if(typeof LightweightCharts=="undefined"){el.textContent="The chart could not load. Check your internet connection and refresh.";return}
+const{tl,size}=EQ,s=[...tl].sort((a,b)=>a.close-b.close),off=ms=>Math.floor(ms/1000)-new Date(ms).getTimezoneOffset()*60;let b=size,prev=off(Math.min(s[0].open||s[0].close,s[0].close-60000));const d=[{time:prev,value:b}];
+s.forEach(t=>{const x=Math.max(off(t.close),prev+1);prev=x;d.push({time:x,value:b+=t.pnl})});
+CH=LightweightCharts.createChart(el,{autoSize:true,layout:{background:{color:"transparent"},textColor:"#9aa7bd"},grid:{vertLines:{color:"rgba(255,255,255,.06)"},horzLines:{color:"rgba(255,255,255,.09)"}},rightPriceScale:{borderColor:"#2a3347"},timeScale:{borderColor:"#2a3347",timeVisible:true,secondsVisible:false},localization:{priceFormatter:v=>"$"+v.toLocaleString(undefined,{maximumFractionDigits:2})}});
+const ser=CH.addAreaSeries({lineColor:"#4f8ff7",topColor:"rgba(79,143,247,.35)",bottomColor:"rgba(79,143,247,0)",lineWidth:2});ser.setData(d);ser.createPriceLine({price:size,color:"#9aa7bd",lineStyle:2,lineWidth:1,title:"Start"});CH.timeScale().fitContent();
+CH.subscribeCrosshairMove(p=>{const v=p.seriesData&&p.seriesData.get(ser);$("#eqv").textContent=v?"$"+v.value.toLocaleString(undefined,{maximumFractionDigits:2})+" · "+new Date(p.time*1000).toLocaleString([],{timeZone:"UTC",day:"numeric",month:"short",hour:"2-digit",minute:"2-digit"}):""})}
+function render(){try{CH&&CH.remove()}catch(e){}CH=null;render0();drawEq()}
 function rules(a,tl){const net=tl.reduce((x,t)=>x+t.pnl,0),bal=a.size+net;let pk=a.size,b=a.size;[...tl].sort((x,y)=>x.close-y.close).forEach(t=>pk=Math.max(pk,b+=t.pnl));
 const day=tl.filter(t=>key(t.close)==key(Date.now())).reduce((x,t)=>x+t.pnl,0),dd=Math.max(0,a.type=="trailing"?pk-bal:a.size-bal);
 const bar=(l,v,max,good)=>{const p=max?Math.max(0,Math.min(100,v/max*100)):0;return `<div class=rule><div><span>${l}</span><b>${money(v)} of ${money(max)}</b></div><div class=bar><i style="width:${p}%;background:${good?"var(--g)":p>75?"var(--r)":"var(--ac)"}"></i></div></div>`};
@@ -114,7 +115,7 @@ function trades(tl){if(!tl.length)return"<p>No trades yet.</p>";return `<div cla
 function accForm(){const e=A.find(x=>x.id==ed)||{},v=k=>e[k]!=null?esc(e[k]):"";
 const list=A.length?`<div class=panel><h3>Your accounts</h3><div class=scroll><table class=accs><tr><th>Name</th><th>Balance</th><th>Daily loss</th><th>Max DD</th><th>Target</th><th>Type</th><th></th></tr>${A.map(a=>`<tr><td>${esc(a.name)}</td><td>${money(a.size||0)}</td><td>${money(a.daily||0)}</td><td>${money(a.dd||0)}</td><td>${money(a.target||0)}</td><td>${a.type=="trailing"?"Trailing":"Static"}</td><td><button class="ghost sm" onclick="editAcc('${a.id}')">Edit</button> <button class="ghost sm" onclick="delAcc('${a.id}')">Delete</button></td></tr>`).join("")}</table></div></div>`:"";
 return list+`<div class=panel><h3>${ed?"Edit account":"Add a prop account"}</h3><div class=form><label>Name<input id=an placeholder="GFT 50k" value="${v("name")}"></label><label>Starting balance<input id=as type=number value="${v("size")}"></label><label>Daily loss limit ($)<input id=ad type=number value="${v("daily")}"></label><label>Max drawdown ($)<input id=am type=number value="${v("dd")}"></label><label>Profit target ($)<input id=at type=number value="${v("target")}"></label><label>Drawdown type<select id=ay><option value=static>Static</option><option value=trailing${e.type=="trailing"?" selected":""}>Trailing</option></select></label></div><p><button onclick="addAcc()">${ed?"Save changes":"Save account"}</button>${ed?` <button class=ghost onclick="cancelEd()">Cancel</button>`:""}</p></div>`}
-function render(){
+function render0(){
   const a=A.find(x=>x.id==sel),tl=T.filter(t=>t.acc==sel),tabs={dash:"Dashboard",cal:"Calendar",tr:"Trades",acc:"Accounts"};
   document.body.dataset.tab=tab;if(tab!="acc")ed="";
   let body=tab=="acc"?accForm():!a?"<p>Add an account first.</p>":tab=="dash"?`<div class=panel>${rules(a,tl)}</div>${stats(tl)}<div class=panel>${eq(tl,a.size)}</div>`:tab=="cal"?`<div class=panel>${cal(tl)}</div>`:`<div class=panel>${trades(tl)}</div>`;
