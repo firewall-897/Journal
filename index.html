@@ -81,7 +81,7 @@ function map(rows){
 if(!FB.apiKey){$("#app").innerHTML='<div class=box><h2>Almost there</h2><p>Open index.html in a text editor and paste your Firebase config values at the top.</p></div>'}
 else{firebase.initializeApp(FB);db=firebase.firestore();firebase.auth().onAuthStateChanged(async u=>{U=u;u?await load():login()})}
 const base=()=>db.collection("users").doc(U.uid);
-async function load(){const[a,t]=await Promise.all([base().collection("accounts").get(),base().collection("trades").get()]);A=a.docs.map(d=>({id:d.id,...d.data()}));T=t.docs.map(d=>({id:d.id,...d.data()}));if(!A.find(x=>x.id==sel))sel=A[0]?.id||"";if(!A.length)tab="acc";render()}
+async function load(){const[a,t]=await Promise.all([base().collection("accounts").get(),base().collection("trades").get()]);A=a.docs.map(d=>({...d.data(),id:d.id}));T=t.docs.map(d=>({...d.data(),id:d.id}));if(!A.find(x=>x.id==sel))sel=A[0]?.id||"";if(!A.length)tab="acc";render()}
 function login(){document.body.dataset.tab="login";$("#app").innerHTML=`<div class=box><h1 class=brand>Scalp Journal</h1><p class=sub>Login</p><input id=em type=email placeholder=Email autocomplete=username><input id=pw type=password placeholder=Password autocomplete=current-password><button onclick="auth(0)">Sign in</button><button class=ghost onclick="auth(1)">Create account</button><p id=err class=r></p></div>`}
 async function auth(n){try{const a=firebase.auth(),e=$("#em").value,p=$("#pw").value;n?await a.createUserWithEmailAndPassword(e,p):await a.signInWithEmailAndPassword(e,p)}catch(x){$("#err").textContent=x.message}}
 const cs=s=>{s=s.trim().replace(/%/g,"");if(!s||/^(nil|none|no|n\/a|na|-)$/i.test(s))return"Nil";const n=+s;return n>0&&n<=100?n:null};
