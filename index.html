@@ -74,7 +74,7 @@ function map(rows){
     if(!c)continue;
     const pnl=num(r[I.p])+(I.cm>=0?num(r[I.cm]):0)+(I.sw>=0?num(r[I.sw]):0);
     let id=(r[I.id]||"").trim()||(I.bf>=0?r[I.bf]+"-"+r[I.sf]:"")||sym+o+c+pnl;
-    out.push({id:id.replace(/[^\w-]/g,"_"),sym,side:side.includes("SELL")?"SELL":"BUY",vol:num(r[I.vol]),open:o||c,close:c,pnl});
+    out.push({id:(id+"_"+c+"_"+Math.round(pnl*100)).replace(/[^\w-]/g,"_"),sym,side:side.includes("SELL")?"SELL":"BUY",vol:num(r[I.vol]),open:o||c,close:c,pnl,gr:num(r[I.p]),cm:I.cm>=0?num(r[I.cm]):0,sw:I.sw>=0?num(r[I.sw]):0});
   }return out}
 
 /* ---------- Firebase ---------- */
@@ -88,7 +88,7 @@ const cs=s=>{s=s.trim().replace(/%/g,"");if(!s||/^(nil|none|no|n\/a|na|-)$/i.tes
 async function addAcc(){const g=i=>$("#"+i).value,a={name:g("an").trim(),size:+g("as"),daily:+g("ad"),dd:+g("am"),target:+g("at"),type:g("ay"),cons:cs(g("ac"))};if(!a.name||!a.size)return alert("Add an account name and size.");if(a.cons===null)return alert("Consistency rule: enter a percent between 1 and 100, or write Nil.");if(ed){await base().collection("accounts").doc(ed).update(a);sel=ed;ed=""}else{const r=await base().collection("accounts").add(a);sel=r.id;tab="dash"}await load()}
 const editAcc=id=>{ed=id;sel=id;tab="acc";render();$("#an").focus()},cancelEd=()=>{ed="";render()};
 async function delAcc(id){if(id)sel=id;const a=A.find(x=>x.id==sel);if(!a||!confirm(`Delete "${a.name}" and all its trades?`))return;if(ed==sel)ed="";const col=base().collection("trades");for(const t of T.filter(t=>t.acc==sel))await col.doc(t.id).delete();await base().collection("accounts").doc(sel).delete();sel="";await load()}
-async function imp(inp){const f=inp.files[0];if(!f)return;if(!sel)return alert("Create an account first.");const L=map(csv((await f.text()).replace(/^\uFEFF/,"")));if(!L.length)return alert("No closed trades found in this file.");const col=base().collection("trades");for(let i=0;i<L.length;i+=400){const b=db.batch();L.slice(i,i+400).forEach(t=>b.set(col.doc(sel+"_"+t.id),{...t,acc:sel},{merge:true}));await b.commit()}inp.value="";alert(L.length+" trades imported. Duplicates are skipped automatically.");await load()}
+async function imp(inp){const f=inp.files[0];if(!f)return;if(!sel)return alert("Create an account first.");const R=csv((await f.text()).replace(/^\uFEFF/,"")),L=map(R);if(!L.length)return alert("No closed trades found in this file.");const col=base().collection("trades");for(let i=0;i<L.length;i+=400){const b=db.batch();L.slice(i,i+400).forEach(t=>b.set(col.doc(sel+"_"+t.id),{...t,acc:sel},{merge:true}));await b.commit()}inp.value="";const sm=k=>L.reduce((x,t)=>x+t[k],0);alert(L.length+" trades imported from "+(R.length-1)+" rows ("+(R.length-1-L.length)+" skipped).\nProfit column: "+money(sm("gr"))+"\nCommission: "+money(sm("cm"))+"\nSwap: "+money(sm("sw"))+"\nNet total: "+money(sm("pnl"))+"\nCompare these with your prop firm.");await load()}
 async function note(id,k,v){const t=T.find(x=>x.id==id);t[k]=v;await base().collection("trades").doc(id).update({[k]:v})}
 
 /* ---------- Views ---------- */
