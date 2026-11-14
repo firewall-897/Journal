@@ -115,7 +115,7 @@ const mv=n=>{cur=new Date(cur.getFullYear(),cur.getMonth()+n,1);render()};
 const opt=(arr,v)=>`<option value="">-</option>`+arr.map(x=>`<option${x==v?" selected":""}>${x}</option>`).join("");
 const tvSym=s=>{const u=String(s||"").toUpperCase().replace(/[^A-Z0-9]/g,"");if(/^(NAS100|US100|USTEC|NQ100)/.test(u))return"OANDA:NAS100USD";if(/^(XAUUSD|GOLD)/.test(u))return"OANDA:XAUUSD";if(/^NQ/.test(u))return"CME_MINI:NQ1!";if(/^GC/.test(u))return"COMEX:GC1!";if(/^[A-Z]{6}/.test(u))return"OANDA:"+u.slice(0,6);return u};
 const tvUrl=s=>"https://www.tradingview.com/chart/?interval=5&symbol="+encodeURIComponent(tvSym(s));
-const tdSym=s=>{const u=String(s||"").toUpperCase().replace(/[^A-Z0-9]/g,"");if(/^(NAS100|US100|USTEC|NQ100)/.test(u))return"NDX";if(/^(XAUUSD|GOLD)/.test(u))return"XAU/USD";if(/^[A-Z]{6}/.test(u))return u.slice(0,3)+"/"+u.slice(3,6);return u};
+const tdSym=s=>{const u=String(s||"").toUpperCase().replace(/[^A-Z0-9]/g,"");if(/^(NAS100|US100|USTEC|NQ100)/.test(u))return"QQQ";if(/^(XAUUSD|GOLD)/.test(u))return"XAU/USD";if(/^[A-Z]{6}/.test(u))return u.slice(0,3)+"/"+u.slice(3,6);return u};
 let TD=null,TC;
 function closeChart(){try{TC&&TC.remove()}catch(e){}TC=null;const m=$("#cm");if(m)m.remove()}
 async function openChart(id){const t=T.find(x=>x.id==id);
@@ -131,15 +131,16 @@ const wall=ms=>{const d=new Date(ms);return Date.UTC(d.getFullYear(),d.getMonth(
 const o=wall(t.open),c=wall(t.close),dur=Math.max(c-o,6e4),pad=Math.max(45*6e4,dur),iv=dur+2*pad>288e5?"5min":"1min",f=ms=>new Date(ms).toISOString().slice(0,19).replace("T"," ");
 msg.textContent="Loading prices...";
 try{const r=await fetch(`https://api.twelvedata.com/time_series?symbol=${encodeURIComponent(tdSym(t.sym))}&interval=${iv}&start_date=${encodeURIComponent(f(o-pad))}&end_date=${encodeURIComponent(f(c+pad))}&timezone=UTC&order=asc&outputsize=5000&apikey=${encodeURIComponent(k)}`),j=await r.json();
-if(j.status=="error"||!j.values||!j.values.length)return msg.textContent=(j.message||"No price data was returned for this trade's time.");
+if(j.status=="error"||!j.values||!j.values.length)return msg.textContent=(tdSym(t.sym)=="QQQ"?"No QQQ prices for this time. QQQ only trades in US market hours (14:30 to 21:00 UTC in winter, weekdays). ":"")+(j.message||"No price data was returned for this trade's time.");
 const d=j.values.map(v=>({time:Date.parse(v.datetime.replace(" ","T")+"Z")/1000,open:+v.open,high:+v.high,low:+v.low,close:+v.close}));
+let note="";if(tdSym(t.sym)=="QQQ"){let e=d[0];for(const x of d)if(x.time<=o/1e3)e=x;if(t.op&&e.close){const q=t.op/e.close;d.forEach(x=>{x.open*=q;x.high*=q;x.low*=q;x.close*=q});note="NAS100 is not on the free plan, so this uses the QQQ ETF scaled to your entry price. Close in shape, not exact, and only US market hours are shown."}else note="NAS100 is not on the free plan, so this shows QQQ at its own price level. Re-import your CSV to get the entry price for scaling."}
 try{TC&&TC.remove()}catch(e){}
 TC=LightweightCharts.createChart($("#tc"),{autoSize:true,layout:{background:{color:"transparent"},textColor:"#9aa7bd"},grid:{vertLines:{color:"rgba(255,255,255,.06)"},horzLines:{color:"rgba(255,255,255,.09)"}},timeScale:{timeVisible:true,secondsVisible:false,borderColor:"#2a3347"},rightPriceScale:{borderColor:"#2a3347"}});
 const s=TC.addCandlestickSeries({upColor:"#1b8a5a",downColor:"#c2413b",borderVisible:false,wickUpColor:"#1b8a5a",wickDownColor:"#c2413b"});s.setData(d);
 const sn=ms=>{let b=d[0].time;for(const x of d)if(x.time<=ms/1e3)b=x.time;return b},buy=t.side=="BUY";
 s.setMarkers([{time:sn(o),position:buy?"belowBar":"aboveBar",color:"#4f8ff7",shape:buy?"arrowUp":"arrowDown",text:"Entry"},{time:sn(c),position:buy?"aboveBar":"belowBar",color:t.pnl>=0?"#1b8a5a":"#c2413b",shape:buy?"arrowDown":"arrowUp",text:"Exit "+money(t.pnl)}].sort((a,b)=>a.time-b.time));
 if(t.op)s.createPriceLine({price:t.op,color:"#4f8ff7",lineStyle:2,lineWidth:1,title:"Entry"});if(t.cp)s.createPriceLine({price:t.cp,color:"#9aa7bd",lineStyle:2,lineWidth:1,title:"Exit"});
-TC.timeScale().fitContent();msg.textContent=`${tdSym(t.sym)} ${iv} candles from Twelve Data. If the arrows look shifted, change the UTC hour box and click Load.`}
+TC.timeScale().fitContent();msg.textContent=`${tdSym(t.sym)} ${iv} candles from Twelve Data. ${note} If the arrows look shifted, change the UTC hour box and click Load.`}
 catch(e){msg.textContent="Could not load prices: "+e.message}}
 function trades(tl){if(!tl.length)return"<p>No trades yet.</p>";return `<div class=scroll><table><tr><th>Closed</th><th>Symbol</th><th>Side</th><th>Net P&L</th><th>Grade</th><th>Felt</th><th>Notes</th><th>Chart</th></tr>`+[...tl].sort((a,b)=>b.close-a.close).map(t=>`<tr><td>${new Date(t.close).toLocaleString([],{dateStyle:"short",timeStyle:"short"})}</td><td>${esc(t.sym)}</td><td>${t.side}</td><td class="${cls(t.pnl)}">${money(t.pnl)}</td><td><select onchange="note('${t.id}','grade',this.value)">${opt(["A","B","C","D"],t.grade)}</select></td><td><select onchange="note('${t.id}','mood',this.value)">${opt(["Calm","Confident","FOMO","Revenge","Fearful","Bored"],t.mood)}</select></td><td><input value="${esc(t.note)}" placeholder="What happened?" onchange="note('${t.id}','note',this.value)"></td><td style="white-space:nowrap"><button class="ghost sm" onclick="openChart('${t.id}')">Chart</button> <a href="${tvUrl(t.sym)}" target=_blank rel=noopener style="color:#4f8ff7">TV</a></td></tr>`).join("")+"</table></div>"}
 function accForm(){const e=A.find(x=>x.id==ed)||{},v=k=>e[k]!=null?esc(e[k]):"";
