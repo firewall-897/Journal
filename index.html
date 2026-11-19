@@ -78,6 +78,64 @@ function map(rows){
     out.push({id:(id+"_"+c+"_"+Math.round(pnl*100)).replace(/[^\w-]/g,"_"),sym,side:side.includes("SELL")?"SELL":"BUY",vol:num(r[I.vol]),open:o||c,close:c,pnl,gr:num(r[I.p]),op:I.op>=0?num(r[I.op]):0,cp:I.cp>=0?num(r[I.cp]):0,cm:I.cm>=0?num(r[I.cm]):0,sw:I.sw>=0?num(r[I.sw]):0});
   }return out}
 
+/* ---------- HTML report reading (MT4/MT5/Five Percent "Trade History Report") ---------- */
+function parseHtmlReport(text){
+  const doc=new DOMParser().parseFromString(text,"text/html");
+  const tables=[...doc.querySelectorAll("table")];
+  let posTable=null;
+  for(const tb of tables){
+    const head=(tb.querySelector("tr")?.textContent||"").toLowerCase();
+    if(head.includes("position")&&head.includes("symbol")&&head.includes("profit")){posTable=tb;break}
+  }
+  if(!posTable)return [];
+  const rows=[...posTable.querySelectorAll("tr")];
+  let H=null,out=[];
+  for(const tr of rows){
+    const cells=[...tr.querySelectorAll("td,th")];
+    const txt=cells.map(c=>c.textContent.trim());
+    const low=txt.map(t=>t.toLowerCase());
+    if(!H&&low.includes("position")&&low.includes("symbol")&&low.includes("profit")){H=low;continue}
+    if(!H)continue;
+    if(!cells.length)continue;
+    const ci=k=>H.indexOf(k);
+    const g=k=>ci(k)>=0?(txt[ci(k)]||""):"";
+    const timeIdx=H.map((h,i)=>h=="time"?i:-1).filter(i=>i>=0);
+    const priceIdx=H.map((h,i)=>h=="price"?i:-1).filter(i=>i>=0);
+    if(timeIdx.length<2||priceIdx.length<2)continue;
+    const openTxt=txt[timeIdx[0]],closeTxt=txt[timeIdx[1]];
+    const sym=g("symbol"),sideRaw=g("type").toLowerCase();
+    if(!sym||!sideRaw)continue;
+    const o=dt(openTxt,0),c=dt(closeTxt,0);
+    if(!c)continue;
+    const rawId=g("position")||(sym+o+c);
+    const vol=num(g("volume"));
+    const op=num(txt[priceIdx[0]]),cp=num(txt[priceIdx[1]]);
+    const cm=num(g("commission")),sw=num(g("swap")),gr=num(g("profit"));
+    const pnl=gr+cm+sw;
+    out.push({id:(rawId+"_"+c+"_"+Math.round(pnl*100)).replace(/[^\w-]/g,"_"),sym,side:sideRaw.includes("sell")?"SELL":"BUY",vol,open:o||c,close:c,pnl,gr,op,cp,cm,sw});
+  }
+  return out;
+}
+async function saveTrades(L,past){
+  const col=base().collection("trades");
+  for(let i=0;i<L.length;i+=400){
+    const b=db.batch();
+    L.slice(i,i+400).forEach(t=>b.set(col.doc(sel+"_"+t.id),{...t,acc:sel,...(past?{past:true}:{})},{merge:true}));
+    await b.commit();
+  }
+}
+async function impHtml(inp,past){
+  const f=inp.files[0];if(!f)return;
+  if(!sel)return alert("Create an account first.");
+  const L=parseHtmlReport(await f.text());
+  if(!L.length)return alert("No closed positions found in this report.");
+  await saveTrades(L,past);
+  inp.value="";
+  const sm=k=>L.reduce((x,t)=>x+t[k],0);
+  alert(L.length+" trades imported"+(past?" as past trades":"")+" from the HTML report.\nProfit column: "+money(sm("gr"))+"\nCommission: "+money(sm("cm"))+"\nSwap: "+money(sm("sw"))+"\nNet total: "+money(sm("pnl"))+"\nCompare these with your prop firm.");
+  await load();
+}
+
 /* ---------- Firebase ---------- */
 if(!FB.apiKey){$("#app").innerHTML='<div class=box><h2>Almost there</h2><p>Open index.html in a text editor and paste your Firebase config values at the top.</p></div>'}
 else{firebase.initializeApp(FB);db=firebase.firestore();firebase.auth().onAuthStateChanged(async u=>{U=u;u?await load():login()})}
@@ -127,5 +185,5 @@ function render0(){
   const a=A.find(x=>x.id==sel),tl=T.filter(t=>t.acc==sel),tabs={dash:"Dashboard",cal:"Calendar",tr:"Trades",acc:"Accounts"};
   document.body.dataset.tab=tab;if(tab!="acc")ed="";
   let body=tab=="acc"?accForm():!a?"<p>Add an account first.</p>":tab=="dash"?`<div class=panel>${rules(a,tl)}</div>${stats(tl)}<div class=panel>${eq(tl,a.size)}</div>`:tab=="cal"?`<div class=panel>${cal(tl)}</div>`:`<div class=panel>${trades(tl)}</div>`;
-  $("#app").innerHTML=`<header><b>Scalp Journal</b><select onchange="sel=this.value;render()" aria-label="Account">${A.map(x=>`<option value="${x.id}"${x.id==sel?" selected":""}>${esc(x.name)}</option>`).join("")}</select><button onclick="$('#f').click()">Import CSV</button><input id=f type=file accept=".csv" hidden onchange="imp(this)"><button class=ghost onclick="$('#fp').click()">Import past trades</button><input id=fp type=file accept=".csv" hidden onchange="imp(this,1)"><button class=ghost onclick="firebase.auth().signOut()">Sign out</button></header><main><nav>${Object.entries(tabs).map(([k,v])=>`<button class="${tab==k?"on":"ghost"}" onclick="tab='${k}';render()">${v}</button>`).join("")}</nav>${body}</main>`}
+  $("#app").innerHTML=`<header><b>Scalp Journal</b><select onchange="sel=this.value;render()" aria-label="Account">${A.map(x=>`<option value="${x.id}"${x.id==sel?" selected":""}>${esc(x.name)}</option>`).join("")}</select><button onclick="$('#f').click()">Import CSV</button><input id=f type=file accept=".csv" hidden onchange="imp(this)"><button class=ghost onclick="$('#fp').click()">Import past trades</button><input id=fp type=file accept=".csv" hidden onchange="imp(this,1)"><button class=ghost onclick="$('#fh').click()">Import report (HTML)</button><input id=fh type=file accept=".html,.htm" hidden onchange="impHtml(this)"><button class=ghost onclick="firebase.auth().signOut()">Sign out</button></header><main><nav>${Object.entries(tabs).map(([k,v])=>`<button class="${tab==k?"on":"ghost"}" onclick="tab='${k}';render()">${v}</button>`).join("")}</nav>${body}</main>`}
 </script></body></html>
