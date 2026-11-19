@@ -82,35 +82,42 @@ function map(rows){
 function parseHtmlReport(text){
   const doc=new DOMParser().parseFromString(text,"text/html");
   const tables=[...doc.querySelectorAll("table")];
-  let posTable=null;
+  let posTable=null,headerRow=null,H=null;
   for(const tb of tables){
-    const head=(tb.querySelector("tr")?.textContent||"").toLowerCase();
-    if(head.includes("position")&&head.includes("symbol")&&head.includes("profit")){posTable=tb;break}
+    const trs=[...tb.querySelectorAll("tr")];
+    for(const tr of trs){
+      const low=[...tr.querySelectorAll("td,th")].map(c=>c.textContent.trim().toLowerCase());
+      if(low.includes("position")&&low.includes("symbol")&&low.includes("profit")){
+        posTable=tb;headerRow=tr;H=low;break;
+      }
+    }
+    if(posTable)break;
   }
-  if(!posTable)return [];
-  const rows=[...posTable.querySelectorAll("tr")];
-  let H=null,out=[];
-  for(const tr of rows){
+  if(!posTable||!H)return [];
+  const ci=k=>H.indexOf(k);
+  const idx={pos:ci("position"),sym:ci("symbol"),typ:ci("type"),vol:ci("volume"),cm:ci("commission"),sw:ci("swap"),pf:ci("profit")};
+  const timeIdx=H.map((h,i)=>h=="time"?i:-1).filter(i=>i>=0);
+  const priceIdx=H.map((h,i)=>h=="price"?i:-1).filter(i=>i>=0);
+  if(timeIdx.length<2||priceIdx.length<2)return [];
+  const out=[];
+  let seen=false;
+  for(const tr of [...posTable.querySelectorAll("tr")]){
+    if(tr===headerRow){seen=true;continue}
+    if(!seen)continue;
     const cells=[...tr.querySelectorAll("td,th")];
+    if(cells.length<6)continue;
     const txt=cells.map(c=>c.textContent.trim());
-    const low=txt.map(t=>t.toLowerCase());
-    if(!H&&low.includes("position")&&low.includes("symbol")&&low.includes("profit")){H=low;continue}
-    if(!H)continue;
-    if(!cells.length)continue;
-    const ci=k=>H.indexOf(k);
-    const g=k=>ci(k)>=0?(txt[ci(k)]||""):"";
-    const timeIdx=H.map((h,i)=>h=="time"?i:-1).filter(i=>i>=0);
-    const priceIdx=H.map((h,i)=>h=="price"?i:-1).filter(i=>i>=0);
-    if(timeIdx.length<2||priceIdx.length<2)continue;
+    const get=i=>(i>=0&&i<txt.length?txt[i]:"");
+    const sym=get(idx.sym).trim();
+    const sideRaw=get(idx.typ).trim().toLowerCase();
+    if(!sym||!/^buy$|^sell$/i.test(sideRaw))continue;
     const openTxt=txt[timeIdx[0]],closeTxt=txt[timeIdx[1]];
-    const sym=g("symbol"),sideRaw=g("type").toLowerCase();
-    if(!sym||!sideRaw)continue;
     const o=dt(openTxt,0),c=dt(closeTxt,0);
     if(!c)continue;
-    const rawId=g("position")||(sym+o+c);
-    const vol=num(g("volume"));
+    const rawId=get(idx.pos)||(sym+o+c);
+    const vol=num(get(idx.vol));
     const op=num(txt[priceIdx[0]]),cp=num(txt[priceIdx[1]]);
-    const cm=num(g("commission")),sw=num(g("swap")),gr=num(g("profit"));
+    const cm=num(get(idx.cm)),sw=num(get(idx.sw)),gr=num(get(idx.pf));
     const pnl=gr+cm+sw;
     out.push({id:(rawId+"_"+c+"_"+Math.round(pnl*100)).replace(/[^\w-]/g,"_"),sym,side:sideRaw.includes("sell")?"SELL":"BUY",vol,open:o||c,close:c,pnl,gr,op,cp,cm,sw});
   }
@@ -144,7 +151,20 @@ async function load(){const[a,t]=await Promise.all([base().collection("accounts"
 function login(){document.body.dataset.tab="login";$("#app").innerHTML=`<div class=box><h1 class=brand>Scalp Journal</h1><p class=sub>Login</p><input id=em type=email placeholder=Email autocomplete=username><input id=pw type=password placeholder=Password autocomplete=current-password><button onclick="auth(0)">Sign in</button><button class=ghost onclick="auth(1)">Create account</button><p id=err class=r></p></div>`}
 async function auth(n){try{const a=firebase.auth(),e=$("#em").value,p=$("#pw").value;n?await a.createUserWithEmailAndPassword(e,p):await a.signInWithEmailAndPassword(e,p)}catch(x){$("#err").textContent=x.message}}
 const cs=s=>{s=s.trim().replace(/%/g,"");if(!s||/^(nil|none|no|n\/a|na|-)$/i.test(s))return"Nil";const n=+s;return n>0&&n<=100?n:null};
-async function addAcc(){const g=i=>$("#"+i).value,a={name:g("an").trim(),size:+g("as"),daily:+g("ad"),dd:+g("am"),target:+g("at"),type:g("ay"),cons:cs(g("ac"))};if(!a.name||!a.size)return alert("Add an account name and size.");if(a.cons===null)return alert("Consistency rule: enter a percent between 1 and 100, or write Nil.");if(ed){await base().collection("accounts").doc(ed).update(a);sel=ed;ed=""}else{const r=await base().collection("accounts").add(a);sel=r.id;tab="dash"}await load()}
+async function addAcc(){
+  const g=i=>$("#"+i).value;
+  const a={name:g("an").trim(),size:+g("as"),daily:+g("ad"),dd:+g("am"),target:+g("at"),type:g("ay"),cons:cs(g("ac"))};
+  if(g("ak")=="steps"){
+    a.steps=[1,2,3].map(n=>({size:+g("s"+n+"s"),target:+g("s"+n+"t"),dd:+g("s"+n+"d")}));
+    if(a.steps.some(s=>!(s.size>0&&s.target>0)))return alert("Each step needs a balance and a profit target.");
+    a.size=a.steps[0].size;a.target=a.steps[0].target;a.dd=a.steps[0].dd;
+  }else a.steps=[];
+  if(!a.name||!a.size)return alert("Add an account name and size.");
+  if(a.cons===null)return alert("Consistency rule: enter a percent between 1 and 100, or write Nil.");
+  if(ed){await base().collection("accounts").doc(ed).update(a);sel=ed;ed=""}
+  else{const r=await base().collection("accounts").add(a);sel=r.id;tab="dash"}
+  await load();
+}
 const editAcc=id=>{ed=id;sel=id;tab="acc";render();$("#an").focus()},cancelEd=()=>{ed="";render()};
 async function delAcc(id){if(id)sel=id;const a=A.find(x=>x.id==sel);if(!a||!confirm(`Delete "${a.name}" and all its trades?`))return;if(ed==sel)ed="";const col=base().collection("trades");for(const t of T.filter(t=>t.acc==sel))await col.doc(t.id).delete();await base().collection("accounts").doc(sel).delete();sel="";await load()}
 async function imp(inp,past){const f=inp.files[0];if(!f)return;if(!sel)return alert("Create an account first.");const R=csv((await f.text()).replace(/^\uFEFF/,"")),L=map(R);if(!L.length)return alert("No closed trades found in this file.");const col=base().collection("trades");for(let i=0;i<L.length;i+=400){const b=db.batch();L.slice(i,i+400).forEach(t=>b.set(col.doc(sel+"_"+t.id),{...t,acc:sel,...(past?{past:true}:{})},{merge:true}));await b.commit()}inp.value="";const sm=k=>L.reduce((x,t)=>x+t[k],0);alert(L.length+" trades imported"+(past?" as past trades":"")+" from "+(R.length-1)+" rows ("+(R.length-1-L.length)+" skipped).\nProfit column: "+money(sm("gr"))+"\nCommission: "+money(sm("cm"))+"\nSwap: "+money(sm("sw"))+"\nNet total: "+money(sm("pnl"))+"\nCompare these with your prop firm.");await load()}
@@ -178,12 +198,15 @@ const dq={};
 function sv(id,k,v){clearTimeout(dq[id+k]);dq[id+k]=setTimeout(()=>note(id,k,v).catch(e=>alert("Could not save: "+e.message)),400)}
 function shot(id,el,fin){const v=el.value.trim();if(v&&!/^https?:\/\//i.test(v)){if(fin){alert("Paste a full link that starts with https://");el.value=""}return}if(fin){clearTimeout(dq[id+"shot"]);note(id,"shot",v).then(render).catch(e=>alert("Could not save the link: "+e.message))}else sv(id,"shot",v)}
 function trades(tl){if(!tl.length)return"<p>No trades yet.</p>";return `<div class=scroll><table><tr><th>Opened</th><th>Closed</th><th>Held</th><th>Symbol</th><th>Side</th><th>Lots</th><th>Net P&L</th><th>Felt</th><th>Notes</th><th>Screenshot</th></tr>`+[...tl].sort((a,b)=>b.close-a.close).map(t=>`<tr><td style="font-size:13px" title="${new Date(t.open||t.close).toLocaleDateString()}">${new Date(t.open||t.close).toLocaleTimeString([],{hour:"2-digit",minute:"2-digit",second:"2-digit"})}</td><td style="font-size:13px" title="${new Date(t.close).toLocaleDateString()}">${new Date(t.close).toLocaleTimeString([],{hour:"2-digit",minute:"2-digit",second:"2-digit"})}</td><td>${held(t.close-t.open)}</td><td>${esc(t.sym)}</td><td>${t.side}</td><td>${t.vol?+t.vol:"-"}</td><td class="${cls(t.pnl)}">${money(t.pnl)}</td>${t.past?'<td style="color:var(--mut)">-</td>'.repeat(3):`<td><select style="min-width:130px" onchange="note('${t.id}','mood',this.value)">${opt(["Calm","Confident","FOMO","Revenge","Fearful","Bored"],t.mood)}</select></td><td><textarea class=nt rows=1 placeholder="What happened?" oninput="fit(this);sv('${t.id}','note',this.value)" onchange="note('${t.id}','note',this.value)">${esc(t.note)}</textarea></td><td style="white-space:nowrap"><input value="${esc(t.shot)}" placeholder="Paste link" style="min-width:0;width:95px" oninput="shot('${t.id}',this)" onchange="shot('${t.id}',this,1)">${t.shot?` <a href="${esc(t.shot)}" target=_blank rel=noopener style="color:#4f8ff7">Open</a>`:""}</td>`}</tr>`).join("")+"</table></div>"}
+function stepsForm(e){const on=e.steps&&e.steps.length,S=on?e.steps:[{size:5000,target:300,dd:250},{size:10000,target:600,dd:500},{size:20000,target:1200,dd:1000}];return `<div id=sp class=form style="display:${on?"grid":"none"};margin-top:8px">`+S.map((s,i)=>`<label>Step ${i+1} balance<input id=s${i+1}s type=number value="${s.size||""}"></label><label>Step ${i+1} target ($)<input id=s${i+1}t type=number value="${s.target||""}"></label><label>Step ${i+1} max loss ($)<input id=s${i+1}d type=number value="${s.dd||""}"></label>`).join("")+`<small style="grid-column:1/-1;color:var(--mut)">Step 1 is your first target. Steps 2 and 3 are pre-filled at 6% to match it, so check them against your prop firm's rules.</small></div>`}
+function stepInfo(a,tl){const S=a.steps;if(!S||!S.length)return null;let i=0,run=0,cur=[],pass=[],done=false;for(const t of[...tl].sort((x,y)=>x.close-y.close)){cur.push(t);run+=t.pnl;if(!done&&S[i].target>0&&run>=S[i].target){pass.push({i,time:t.close});if(i<S.length-1){i++;run=0;cur=[]}else done=true}}return{i,S,cur,pass,done,st:S[i]}}
+function dashHtml(a,tl){const si=stepInfo(a,tl);if(!si)return `<div class=panel>${rules(a,tl)}</div>${stats(tl)}<div class=panel>${eq(tl,a.size)}</div>`;const st=si.st,b={...a,size:st.size,target:st.target,dd:st.dd||0};return `<div class=panel><b>${si.done?"All "+si.S.length+" steps passed. You are funded!":"Step "+(si.i+1)+" of "+si.S.length+": "+money(st.size)+" account, target "+money(st.target)}</b>${si.pass.map(p=>`<div class=g>✔ Step ${p.i+1} passed on ${new Date(p.time).toLocaleDateString()}</div>`).join("")}</div><div class=panel>${rules(b,si.cur)}</div>${stats(si.cur)}<div class=panel>${eq(si.cur,st.size)}</div>`}
 function accForm(){const e=A.find(x=>x.id==ed)||{},v=k=>e[k]!=null?esc(e[k]):"";
-const list=A.length?`<div class=panel><h3>Your accounts</h3><div class=scroll><table class=accs><tr><th>Name</th><th>Balance</th><th>Daily loss</th><th>Max DD</th><th>Target</th><th>Type</th><th>Consistency</th><th></th></tr>${A.map(a=>`<tr><td>${esc(a.name)}</td><td>${money(a.size||0)}</td><td>${money(a.daily||0)}</td><td>${money(a.dd||0)}</td><td>${money(a.target||0)}</td><td>${a.type=="trailing"?"Trailing":"Static"}</td><td>${typeof a.cons=="number"?a.cons+"%":"Nil"}</td><td><button class="ghost sm" onclick="editAcc('${a.id}')">Edit</button> <button class="ghost sm" onclick="delAcc('${a.id}')">Delete</button></td></tr>`).join("")}</table></div></div>`:"";
-return list+`<div class=panel><h3>${ed?"Edit account":"Add a prop account"}</h3><div class=form><label>Name<input id=an placeholder="GFT 50k" value="${v("name")}"></label><label>Starting balance<input id=as type=number value="${v("size")}"></label><label>Daily loss limit ($)<input id=ad type=number value="${v("daily")}"></label><label>Max drawdown ($)<input id=am type=number value="${v("dd")}"></label><label>Profit target ($)<input id=at type=number value="${v("target")}"></label><label>Drawdown type<select id=ay><option value=static>Static</option><option value=trailing${e.type=="trailing"?" selected":""}>Trailing</option></select></label><label>Consistency rule (% or Nil)<input id=ac placeholder="30, or Nil" value="${typeof e.cons=="number"?e.cons:"Nil"}"></label></div><p><button onclick="addAcc()">${ed?"Save changes":"Save account"}</button>${ed?` <button class=ghost onclick="cancelEd()">Cancel</button>`:""}</p></div>`}
+const list=A.length?`<div class=panel><h3>Your accounts</h3><div class=scroll><table class=accs><tr><th>Name</th><th>Balance</th><th>Daily loss</th><th>Max DD</th><th>Target</th><th>Type</th><th>Consistency</th><th>Kind</th><th></th></tr>${A.map(a=>`<tr><td>${esc(a.name)}</td><td>${money(a.size||0)}</td><td>${money(a.daily||0)}</td><td>${money(a.dd||0)}</td><td>${money(a.target||0)}</td><td>${a.type=="trailing"?"Trailing":"Static"}</td><td>${typeof a.cons=="number"?a.cons+"%":"Nil"}</td><td>${a.steps&&a.steps.length?"3-step":"Single"}</td><td><button class="ghost sm" onclick="editAcc('${a.id}')">Edit</button> <button class="ghost sm" onclick="delAcc('${a.id}')">Delete</button></td></tr>`).join("")}</table></div></div>`:"";
+return list+`<div class=panel><h3>${ed?"Edit account":"Add a prop account"}</h3><div class=form><label>Name<input id=an placeholder="GFT 50k" value="${v("name")}"></label><label>Starting balance<input id=as type=number value="${v("size")}"></label><label>Daily loss limit ($)<input id=ad type=number value="${v("daily")}"></label><label>Max drawdown ($)<input id=am type=number value="${v("dd")}"></label><label>Profit target ($)<input id=at type=number value="${v("target")}"></label><label>Drawdown type<select id=ay><option value=static>Static</option><option value=trailing${e.type=="trailing"?" selected":""}>Trailing</option></select></label><label>Consistency rule (% or Nil)<input id=ac placeholder="30, or Nil" value="${typeof e.cons=="number"?e.cons:"Nil"}"></label><label>Account kind<select id=ak onchange="$('#sp').style.display=this.value=='steps'?'grid':'none'"><option value=single>Single account</option><option value=steps${e.steps&&e.steps.length?" selected":""}>3-step Bootcamp</option></select></label></div>${stepsForm(e)}<p><button onclick="addAcc()">${ed?"Save changes":"Save account"}</button>${ed?` <button class=ghost onclick="cancelEd()">Cancel</button>`:""}</p></div>`}
 function render0(){
   const a=A.find(x=>x.id==sel),tl=T.filter(t=>t.acc==sel),tabs={dash:"Dashboard",cal:"Calendar",tr:"Trades",acc:"Accounts"};
   document.body.dataset.tab=tab;if(tab!="acc")ed="";
-  let body=tab=="acc"?accForm():!a?"<p>Add an account first.</p>":tab=="dash"?`<div class=panel>${rules(a,tl)}</div>${stats(tl)}<div class=panel>${eq(tl,a.size)}</div>`:tab=="cal"?`<div class=panel>${cal(tl)}</div>`:`<div class=panel>${trades(tl)}</div>`;
+  let body=tab=="acc"?accForm():!a?"<p>Add an account first.</p>":tab=="dash"?dashHtml(a,tl):tab=="cal"?`<div class=panel>${cal(tl)}</div>`:`<div class=panel>${trades(tl)}</div>`;
   $("#app").innerHTML=`<header><b>Scalp Journal</b><select onchange="sel=this.value;render()" aria-label="Account">${A.map(x=>`<option value="${x.id}"${x.id==sel?" selected":""}>${esc(x.name)}</option>`).join("")}</select><button onclick="$('#f').click()">Import CSV</button><input id=f type=file accept=".csv" hidden onchange="imp(this)"><button class=ghost onclick="$('#fp').click()">Import past trades</button><input id=fp type=file accept=".csv" hidden onchange="imp(this,1)"><button class=ghost onclick="$('#fh').click()">Import report (HTML)</button><input id=fh type=file accept=".html,.htm" hidden onchange="impHtml(this)"><button class=ghost onclick="firebase.auth().signOut()">Sign out</button></header><main><nav>${Object.entries(tabs).map(([k,v])=>`<button class="${tab==k?"on":"ghost"}" onclick="tab='${k}';render()">${v}</button>`).join("")}</nav>${body}</main>`}
 </script></body></html>
