@@ -59,10 +59,40 @@ const cls=v=>v>0?"g":v<0?"r":"",p2=n=>String(n).padStart(2,"0");
 const key=ms=>{const d=new Date(ms);return d.getFullYear()+"-"+p2(d.getMonth()+1)+"-"+p2(d.getDate())};
 let U,db,A=[],T=[],sel="",tab="dash",cur=new Date(),ed="";
 
-/* ---------- CSV reading (Match Trader, MT5, Tradovate) ---------- */
+/* ---------- CSV & MT5 HTML reading ---------- */
 function csv(t){const r=[];let row=[],c="",q=0;for(let i=0;i<t.length;i++){const ch=t[i];if(q){if(ch=='"'){if(t[i+1]=='"'){c+='"';i++}else q=0}else c+=ch}else if(ch=='"')q=1;else if(ch==','||ch==';'&&0){row.push(c);c=""}else if(ch=='\n'||ch=='\r'){if(ch=='\r'&&t[i+1]=='\n')i++;row.push(c);r.push(row);row=[];c=""}else c+=ch}if(c||row.length){row.push(c);r.push(row)}return r.filter(x=>x.join("").trim())}
-function num(s){s=String(s||"").trim();const neg=/^\(.*\)$/.test(s)||s.startsWith("-");const v=parseFloat(s.replace(/[^0-9.]/g,""))||0;return neg?-v:v}
+function num(s){s=String(s||"").replace(/\s+/g,"").trim();const neg=/^\(.*\)$/.test(s)||s.startsWith("-");const v=parseFloat(s.replace(/[^0-9.]/g,""))||0;return neg?-v:v}
 function dt(s,df){s=(s||"").trim();let m=s.match(/^(\d{4})[.\-\/](\d\d)[.\-\/](\d\d)[ T]?(\d\d)?:?(\d\d)?:?(\d\d)?/);if(m)return new Date(+m[1],m[2]-1,+m[3],+m[4]||0,+m[5]||0,+m[6]||0).getTime();m=s.match(/^(\d{1,2})[\/.\-](\d{1,2})[\/.\-](\d{4})[ ,]*(\d{1,2})?:?(\d\d)?:?(\d\d)?/);if(!m)return null;let a=+m[1],b=+m[2];if(a>12)df=1;else if(b>12)df=0;return new Date(+m[3],(df?b:a)-1,df?a:b,+m[4]||0,+m[5]||0,+m[6]||0).getTime()}
+
+function parseHtml(txt){
+  const doc=new DOMParser().parseFromString(txt,"text/html");
+  const rows=[...doc.querySelectorAll("tr")];
+  let inPos=0,hdr=[],out=[],totalRows=0;
+  for(const tr of rows){
+    const title=tr.textContent.trim();
+    if(tr.querySelector("th")&&/^(Positions|Orders|Deals|Open Positions|Working Orders|Results)$/i.test(title)){
+      inPos=/^Positions$/i.test(title);
+      hdr=[];
+      continue;
+    }
+    if(!inPos)continue;
+    const cells=[...tr.children].filter(td=>!td.classList.contains("hidden")&&td.style.display!=="none").map(td=>td.textContent.trim());
+    if(!cells.length||cells.every(x=>!x))continue;
+    if(!hdr.length){
+      if(cells.some(c=>/^(Time|Position|Symbol)$/i.test(c)))hdr=cells;
+      continue;
+    }
+    if(cells.length<12)continue;
+    totalRows++;
+    const o=dt(cells[0],1),c=dt(cells[8],1),sym=cells[2],side=cells[3].toUpperCase();
+    if(!sym||!c)continue;
+    const gr=num(cells[12]),cm=num(cells[10]),sw=num(cells[11]),pnl=gr+cm+sw;
+    const id=(cells[1]||sym+o+c+pnl).trim();
+    out.push({id:(id+"_"+c+"_"+Math.round(pnl*100)).replace(/[^\w-]/g,"_"),sym,side:side.includes("SELL")?"SELL":"BUY",vol:num(cells[4]),open:o||c,close:c,pnl,gr,op:num(cells[5]),cp:num(cells[9]),cm,sw});
+  }
+  return{L:out,total:totalRows};
+}
+
 function map(rows){
   const H=rows[0].map(h=>h.toLowerCase().replace(/[^a-z0-9]/g,"")),f=(...k)=>{for(const x of k){const i=H.indexOf(x);if(i>=0)return i}return -1};
   const I={id:f("id","position","positionid","ticket","orderid"),sym:f("symbol","instrument","contract"),side:f("side","type","direction"),vol:f("volume","qty","quantity","size","lots"),o:f("opentime","timeopen","boughttimestamp","entrytime"),c:f("closetime","timeclose","soldtimestamp","exittime"),p:f("profit","pnl","netpl","netprofit"),cm:f("commission","commissions","fee","fees"),sw:f("swap"),bf:f("buyfillid"),sf:f("sellfillid"),op:f("openprice","entryprice"),cp:f("closeprice","exitprice")};
@@ -89,14 +119,35 @@ const cs=s=>{s=s.trim().replace(/%/g,"");if(!s||/^(nil|none|no|n\/a|na|-)$/i.tes
 async function addAcc(){const g=i=>$("#"+i).value,a={name:g("an").trim(),size:+g("as"),daily:+g("ad"),dd:+g("am"),target:+g("at"),type:g("ay"),cons:cs(g("ac"))};if(!a.name||!a.size)return alert("Add an account name and size.");if(a.cons===null)return alert("Consistency rule: enter a percent between 1 and 100, or write Nil.");if(ed){await base().collection("accounts").doc(ed).update(a);sel=ed;ed=""}else{const r=await base().collection("accounts").add(a);sel=r.id;tab="dash"}await load()}
 const editAcc=id=>{ed=id;sel=id;tab="acc";render();$("#an").focus()},cancelEd=()=>{ed="";render()};
 async function delAcc(id){if(id)sel=id;const a=A.find(x=>x.id==sel);if(!a||!confirm(`Delete "${a.name}" and all its trades?`))return;if(ed==sel)ed="";const col=base().collection("trades");for(const t of T.filter(t=>t.acc==sel))await col.doc(t.id).delete();await base().collection("accounts").doc(sel).delete();sel="";await load()}
-async function imp(inp,past){const f=inp.files[0];if(!f)return;if(!sel)return alert("Create an account first.");const R=csv((await f.text()).replace(/^\uFEFF/,"")),L=map(R);if(!L.length)return alert("No closed trades found in this file.");const col=base().collection("trades");for(let i=0;i<L.length;i+=400){const b=db.batch();L.slice(i,i+400).forEach(t=>b.set(col.doc(sel+"_"+t.id),{...t,acc:sel,...(past?{past:true}:{})},{merge:true}));await b.commit()}inp.value="";const sm=k=>L.reduce((x,t)=>x+t[k],0);alert(L.length+" trades imported"+(past?" as past trades":"")+" from "+(R.length-1)+" rows ("+(R.length-1-L.length)+" skipped).\nProfit column: "+money(sm("gr"))+"\nCommission: "+money(sm("cm"))+"\nSwap: "+money(sm("sw"))+"\nNet total: "+money(sm("pnl"))+"\nCompare these with your prop firm.");await load()}
+
+async function imp(inp,past){
+  const f=inp.files[0];if(!f)return;
+  if(!sel)return alert("Create an account first.");
+  const txt=(await f.text()).replace(/^\uFEFF/,"");
+  const isHtml=/\.html?$/i.test(f.name)||/<html|<table/i.test(txt.slice(0,500));
+  let L=[],totalRows=0;
+  if(isHtml){const res=parseHtml(txt);L=res.L;totalRows=res.total}
+  else{const R=csv(txt);L=map(R);totalRows=Math.max(0,R.length-1)}
+  if(!L.length){inp.value="";return alert("No closed trades found in this file.")}
+  const col=base().collection("trades");
+  for(let i=0;i<L.length;i+=400){
+    const b=db.batch();
+    L.slice(i,i+400).forEach(t=>b.set(col.doc(sel+"_"+t.id),{...t,acc:sel,...(past?{past:true}:{})},{merge:true}));
+    await b.commit();
+  }
+  inp.value="";
+  const sm=k=>L.reduce((x,t)=>x+t[k],0);
+  alert(L.length+" trades imported"+(past?" as past trades":"")+" from "+totalRows+" rows ("+(totalRows-L.length)+" skipped).\nProfit column: "+money(sm("gr"))+"\nCommission: "+money(sm("cm"))+"\nSwap: "+money(sm("sw"))+"\nNet total: "+money(sm("pnl"))+"\nCompare these with your prop firm.");
+  await load();
+}
+
 async function note(id,k,v){const t=T.find(x=>x.id==id);t[k]=v;await base().collection("trades").doc(id).update({[k]:v})}
 
 /* ---------- Views ---------- */
 function stats(tl){const w=tl.filter(t=>t.pnl>0),l=tl.filter(t=>t.pnl<0),gw=w.reduce((a,t)=>a+t.pnl,0),gl=-l.reduce((a,t)=>a+t.pnl,0),net=gw-gl,n=tl.length;
 return `<div class=tiles><div><small>Net P&L</small><b class="${cls(net)}">${money(net)}</b></div><div><small>Trades</small><b>${n}</b></div><div><small>Win rate</small><b>${n?Math.round(w.length/n*100):0}%</b></div><div><small>Profit factor</small><b>${gl?(gw/gl).toFixed(2):w.length?"∞":"0"}</b></div><div><small>Avg win / loss</small><b>${money(w.length?gw/w.length:0)} / ${money(l.length?-gl/l.length:0)}</b></div><div><small>Best / worst</small><b>${money(n?Math.max(...tl.map(t=>t.pnl)):0)} / ${money(n?Math.min(...tl.map(t=>t.pnl)):0)}</b></div></div>`}
 let CH,EQ;
-function eq(tl,size){if(!tl.length)return"<p>No trades yet. Import a CSV to see your equity curve.</p>";EQ={tl,size};return `<div style="display:flex;gap:6px;flex-wrap:wrap;align-items:center;margin-bottom:6px"><button class=ghost onclick="CH&&CH.timeScale().fitContent()">Fit all</button><button class=ghost onclick="CH&&CH.priceScale('right').applyOptions({autoScale:true})">Reset height</button><b id=eqv style="margin-left:auto"></b></div><div id=eqc style="height:340px"></div><small style="color:var(--mut)">Scroll or pinch to zoom, drag to move, drag the numbers on the right to stretch.</small>`}
+function eq(tl,size){if(!tl.length)return"<p>No trades yet. Import a CSV or MT5 HTML report to see your equity curve.</p>";EQ={tl,size};return `<div style="display:flex;gap:6px;flex-wrap:wrap;align-items:center;margin-bottom:6px"><button class=ghost onclick="CH&&CH.timeScale().fitContent()">Fit all</button><button class=ghost onclick="CH&&CH.priceScale('right').applyOptions({autoScale:true})">Reset height</button><b id=eqv style="margin-left:auto"></b></div><div id=eqc style="height:340px"></div><small style="color:var(--mut)">Scroll or pinch to zoom, drag to move, drag the numbers on the right to stretch.</small>`}
 function drawEq(){const el=$("#eqc");if(!el||!EQ)return;if(typeof LightweightCharts=="undefined"){el.textContent="The chart could not load. Check your internet connection and refresh.";return}
 const{tl,size}=EQ,s=[...tl].sort((a,b)=>a.close-b.close),off=ms=>Math.floor(ms/1000)-new Date(ms).getTimezoneOffset()*60;let b=size,prev=off(Math.min(s[0].open||s[0].close,s[0].close-60000));const d=[{time:prev,value:b}];
 s.forEach(t=>{const x=Math.max(off(t.close),prev+1);prev=x;d.push({time:x,value:b+=t.pnl})});
@@ -127,5 +178,5 @@ function render0(){
   const a=A.find(x=>x.id==sel),tl=T.filter(t=>t.acc==sel),tabs={dash:"Dashboard",cal:"Calendar",tr:"Trades",acc:"Accounts"};
   document.body.dataset.tab=tab;if(tab!="acc")ed="";
   let body=tab=="acc"?accForm():!a?"<p>Add an account first.</p>":tab=="dash"?`<div class=panel>${rules(a,tl)}</div>${stats(tl)}<div class=panel>${eq(tl,a.size)}</div>`:tab=="cal"?`<div class=panel>${cal(tl)}</div>`:`<div class=panel>${trades(tl)}</div>`;
-  $("#app").innerHTML=`<header><b>Scalp Journal</b><select onchange="sel=this.value;render()" aria-label="Account">${A.map(x=>`<option value="${x.id}"${x.id==sel?" selected":""}>${esc(x.name)}</option>`).join("")}</select><button onclick="$('#f').click()">Import CSV</button><input id=f type=file accept=".csv" hidden onchange="imp(this)"><button class=ghost onclick="$('#fp').click()">Import past trades</button><input id=fp type=file accept=".csv" hidden onchange="imp(this,1)"><button class=ghost onclick="firebase.auth().signOut()">Sign out</button></header><main><nav>${Object.entries(tabs).map(([k,v])=>`<button class="${tab==k?"on":"ghost"}" onclick="tab='${k}';render()">${v}</button>`).join("")}</nav>${body}</main>`}
+  $("#app").innerHTML=`<header><b>Scalp Journal</b><select onchange="sel=this.value;render()" aria-label="Account">${A.map(x=>`<option value="${x.id}"${x.id==sel?" selected":""}>${esc(x.name)}</option>`).join("")}</select><button onclick="$('#f').click()">Import CSV / HTML</button><input id=f type=file accept=".csv,.html,.htm" hidden onchange="imp(this)"><button class=ghost onclick="$('#fp').click()">Import past trades</button><input id=fp type=file accept=".csv,.html,.htm" hidden onchange="imp(this,1)"><button class=ghost onclick="firebase.auth().signOut()">Sign out</button></header><main><nav>${Object.entries(tabs).map(([k,v])=>`<button class="${tab==k?"on":"ghost"}" onclick="tab='${k}';render()">${v}</button>`).join("")}</nav>${body}</main>`}
 </script></body></html>
